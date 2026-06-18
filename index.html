@@ -1305,6 +1305,7 @@ var S = {
   turn: 1,
   season: 0,
   playerFaction: null,
+  playerDiff: 0,     // 玩家開局難度 tier：0 易 / 1 普通 / 2 困難（決定加成幅度）
   factions: {},      // fid -> {id,name,color,leaderId,gold,food,alive,isPlayer,ceasefire:{},aiTrait}
   cityOwner: {},     // cityId -> fid | null
   cityState: {},     // cityId -> {troops,def,com,agr,pop,acted}
@@ -2318,7 +2319,9 @@ BATTLE.makeSide = function (fid, genId, troops, wall) {
     wall: wall || 0,
     fireUsed: false,
     injured: inj,
-    isPlayer: (fid === S.playerFaction)
+    isPlayer: (fid === S.playerFaction),
+    // 困難 / 普通開局者：將士用命，戰力略增（攻守皆然）
+    edge: (fid === S.playerFaction) ? (typeof ENGINE !== "undefined" ? ENGINE.playerEdge() : 1) : 1
   };
 };
 
@@ -2384,8 +2387,8 @@ BATTLE.step = function (att, def, attT, defT) {
 
   /* —— 一般廝殺 —— */
   var aBefore = att.troops, dBefore = def.troops;
-  var ea = Math.pow(Math.max(att.troops, 1), 0.88) * BATTLE._qual(att) * BATTLE._off(attT);
-  var ed = Math.pow(Math.max(def.troops, 1), 0.88) * BATTLE._qual(def) * BATTLE._off(defT);
+  var ea = Math.pow(Math.max(att.troops, 1), 0.88) * BATTLE._qual(att) * BATTLE._off(attT) * (att.edge || 1);
+  var ed = Math.pow(Math.max(def.troops, 1), 0.88) * BATTLE._qual(def) * BATTLE._off(defT) * (def.edge || 1);
   var total = ea + ed;
   var shareA = ea / total;                  // 攻方戰力佔比 → 守方傷亡
   var force = att.troops + def.troops;
@@ -3185,6 +3188,12 @@ AI.planAttacks = function (fid) {
       var margin = aStr / (dStr + 1);
       var neutral = (owner === null);
       var threshold = neutral ? 1.0 : 1.18;
+      // 困難 / 普通開局者：諸侯起兵較為審慎，且開局數年內按兵不犯，留其喘息生聚
+      if (owner === S.playerFaction && S.playerDiff > 0) {
+        threshold += S.playerDiff * 0.22;                     // 困難 +0.44、普通 +0.22
+        var grace = 3 + S.playerDiff * 2;                     // 困難 7 年、普通 5 年
+        if (S.turn <= grace) threshold += 0.7;
+      }
       if (margin >= threshold) {
         cand.push({ from: from, to: to, margin: margin, player: (owner === S.playerFaction), neutral: neutral });
       }
@@ -3236,6 +3245,21 @@ var ENGINE = {
   SAVE_KEY: "sgyy_save_v1"
 };
 
+/* ---------------- 難度 / 平衡 ----------------
+   依玩家所選勢力的開局難度給予「天命」加成，使弱小諸侯亦有逐鹿之機。
+   tier：易=0（無加成，維持原本體驗）、普通=1（小幅）、困難=2（顯著）。
+   所有加成僅作用於「玩家」勢力，AI 之間維持原本平衡，天下依舊勢均力敵。 */
+ENGINE.diffTier = function (fid) {
+  var f = S.scen && S.scen.f && S.scen.f[fid];
+  var d = f ? f.diff : "普通";
+  return d === "困難" ? 2 : (d === "易" ? 0 : 1);
+};
+// 玩家戰力加成倍率（攻守皆適用）
+ENGINE.playerEdge = function () {
+  var t = S.playerDiff || 0;
+  return 1 + t * 0.07;            // 困難 ×1.14、普通 ×1.07
+};
+
 /* ---------------- 初始化 ---------------- */
 ENGINE.initGame = function (scenKey, playerFid) {
   var scen = SCEN[scenKey];
@@ -3254,14 +3278,22 @@ ENGINE.initGame = function (scenKey, playerFid) {
   S.over = false;
   S.outcome = null;
 
+  // 玩家開局難度（決定各項加成幅度）
+  var pTier = ENGINE.diffTier(playerFid);
+  S.playerDiff = pTier;
+
   // 勢力
   var fid;
   for (fid in scen.f) {
     var f = scen.f[fid];
+    var isP = (fid === playerFid);
     S.factions[fid] = {
       id: fid, name: f.name, color: f.color, leaderId: f.leader,
-      gold: 1400, food: 2600, alive: true,
-      isPlayer: (fid === playerFid),
+      // 困難開局者多得錢糧以應急（招兵買馬、興農安民）
+      gold: 1400 + (isP ? pTier * 700 : 0),
+      food: 2600 + (isP ? pTier * 900 : 0),
+      alive: true,
+      isPlayer: isP,
       ceasefire: {},
       trait: Q.gen(f.leader) ? Q.gen(f.leader).s[ST_INT] : 70
     };
@@ -3274,13 +3306,21 @@ ENGINE.initGame = function (scenKey, playerFid) {
     var owner = (scen.own[cid] !== undefined) ? scen.own[cid] : null;
     var troops = scen.troops[cid];
     if (troops === undefined) troops = owner ? 8000 : 2500;
+    var isPlayerCity = (owner === playerFid);
+    var defBuff = 0, popBuff = 0;
+    // 困難開局者的根據地：增兵固守、加築城防、安撫民心，以渡過開局的群狼環伺
+    if (isPlayerCity && pTier > 0) {
+      troops = Math.round(troops * (1 + pTier * 0.18));
+      defBuff = pTier * 5;
+      popBuff = pTier * 4;
+    }
     S.cityOwner[cid] = owner;
     S.cityState[cid] = {
       troops: troops,
-      def: base.def,
+      def: U.clamp(base.def + defBuff, 0, 100),
       com: base.com,
       agr: base.agr,
-      pop: owner ? 70 : 55,
+      pop: U.clamp((owner ? 70 : 55) + popBuff, 5, 100),
       acted: false
     };
   }
@@ -3304,6 +3344,15 @@ ENGINE.initGame = function (scenKey, playerFid) {
 
   ENGINE.pushLog("【" + scen.name + "】" + scen.year, "era");
   ENGINE.pushLog("你選擇了「" + S.factions[playerFid].name + "」，霸業就此展開。", "info");
+
+  // 困難 / 普通開局加成提示
+  S.difficultyTip = "";
+  if (pTier > 0) {
+    S.difficultyTip = (pTier === 2 ? "困難" : "普通") +
+      "開局：天命相助——錢糧充裕、募兵省金、賦稅加增、將士用命、群雄起兵亦較寬容。";
+    ENGINE.pushLog("⚖ " + (pTier === 2 ? "勢單力薄，天意眷之" : "民心可用") +
+      "：" + S.difficultyTip, "good");
+  }
 };
 
 /* ---------------- 紀錄 ---------------- */
@@ -3321,6 +3370,12 @@ ENGINE.income = function (fid) {
     cs = S.cityState[cities[i]];
     gold += Math.round(cs.com * 6 * cs.pop / 100) + 30;
     food += Math.round(cs.agr * 8 * cs.pop / 100);
+  }
+  // 困難 / 普通開局者賦稅、屯田加增
+  if (fid === S.playerFaction && S.playerDiff > 0) {
+    var im = 1 + S.playerDiff * 0.18;     // 困難 ×1.36、普通 ×1.18
+    gold = Math.round(gold * im);
+    food = Math.round(food * im);
   }
   var upkeep = Math.round(Q.totalTroops(fid) * 0.05);
   var f = S.factions[fid];
@@ -3527,7 +3582,9 @@ ENGINE.actRecruit = function (cid, amount) {
   var cap = 60000 - cs.troops;
   if (amount > cap) amount = cap;
   if (amount < 500) { ENGINE.toast("兵額不足"); return false; }
-  var cost = Math.round(amount * 0.1);
+  // 困難 / 普通開局者募兵省金
+  var costRate = 0.1 * (1 - (S.playerDiff || 0) * 0.13);   // 困難 ≈0.074、普通 ≈0.087
+  var cost = Math.round(amount * costRate);
   if (!ENGINE.spend(cost)) { ENGINE.toast("金不足"); return false; }
   cs.troops += amount;
   cs.pop = U.clamp(cs.pop - Math.round(amount / 2200), 5, 100);
@@ -3695,7 +3752,7 @@ ENGINE.declareOver = function (outcome, msg) {
 ENGINE.snapshot = function () {
   return JSON.stringify({
     v: 1, scenKey: S.scenKey, turn: S.turn, season: S.season,
-    playerFaction: S.playerFaction, factions: S.factions,
+    playerFaction: S.playerFaction, playerDiff: S.playerDiff, factions: S.factions,
     cityOwner: S.cityOwner, cityState: S.cityState,
     generals: S.generals, wildPool: S.wildPool, log: S.log
   });
@@ -3722,6 +3779,8 @@ ENGINE.load = function () {
     S.scenKey = d.scenKey; S.scen = SCEN[d.scenKey];
     S.turn = d.turn; S.season = d.season;
     S.playerFaction = d.playerFaction;
+    // 還原玩家難度加成（舊存檔則依勢力難度推算）
+    S.playerDiff = (typeof d.playerDiff === "number") ? d.playerDiff : ENGINE.diffTier(d.playerFaction);
     S.factions = d.factions; S.cityOwner = d.cityOwner;
     S.cityState = d.cityState; S.generals = d.generals;
     S.wildPool = d.wildPool; S.log = d.log || [];
@@ -3851,11 +3910,12 @@ BOOT.renderFactions = function (scenKey) {
     var ng = BOOT.startGens(s, fid);
     var leader = GEN[f.leader];
     var port = leader ? PORTRAIT.toDataURL(leader, 64, f.color) : "";
+    var aid = (f.diff === "困難") ? " · 天命加成★★" : (f.diff === "普通" ? " · 天命加成★" : "");
     cards += '<button class="fac-card" data-f="' + fid + '" style="--fc:' + f.color + '">' +
       '<img class="fac-port" src="' + port + '">' +
       '<div class="fac-name">' + f.name + '</div>' +
       '<div class="fac-leader">君主 ' + (leader ? leader.n : "—") + '</div>' +
-      '<div class="fac-diff">難度 ' + f.diff + '</div>' +
+      '<div class="fac-diff">難度 ' + f.diff + aid + '</div>' +
       '<div class="fac-meta">城 ' + nc + ' · 將 ' + ng + '</div>' +
       '<div class="fac-desc">' + f.desc + '</div>' +
       '</button>';
