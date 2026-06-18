@@ -1,0 +1,17 @@
+{
+  "name": "三國演義：天下歸一",
+  "short_name": "天下歸一",
+  "description": "純網頁單機回合制策略遊戲，群雄逐鹿、問鼎中原。",
+  "lang": "zh-Hant",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#13100b",
+  "theme_color": "#13100b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
