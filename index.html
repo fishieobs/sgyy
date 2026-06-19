@@ -3383,7 +3383,8 @@ ENGINE.income = function (fid) {
   for (i = 0; i < cities.length; i++) {
     cs = S.cityState[cities[i]];
     gold += Math.round(cs.com * 6 * cs.pop / 100) + 30;
-    food += Math.round(cs.agr * 8 * cs.pop / 100);
+    // 屯田基礎產出 + 田畝收成（係數提高，使糧草隨時序穩定積累）
+    food += Math.round(cs.agr * 10 * cs.pop / 100) + 40;
   }
   // 困難 / 普通開局者賦稅、屯田加增
   if (fid === S.playerFaction && S.playerDiff > 0) {
@@ -3391,7 +3392,11 @@ ENGINE.income = function (fid) {
     gold = Math.round(gold * im);
     food = Math.round(food * im);
   }
-  var upkeep = Math.round(Q.totalTroops(fid) * 0.05);
+  // 四時更迭：秋收最豐、冬藏略歉（春夏秋冬）
+  var harvest = [1.0, 1.05, 1.35, 0.95][S.season] || 1.0;
+  food = Math.round(food * harvest);
+  // 兵糧消耗（降為每兵 0.03，使常備之師可自給，過度擴軍方致糧荒）
+  var upkeep = Math.round(Q.totalTroops(fid) * 0.03);
   var f = S.factions[fid];
   f.gold += gold;
   f.food += (food - upkeep);
@@ -3420,6 +3425,7 @@ ENGINE.startPlayerTurn = function () {
   ENGINE.tickInjuries(S.playerFaction);
   var inc = ENGINE.income(S.playerFaction);
   if (inc.deficit) ENGINE.pushLog("⚠ 糧草不繼，士卒逃散！速修農桑。", "warn");
+  else if (S.season === 2) ENGINE.pushLog("🌾 秋收時節，倉廩盈實（入糧 " + U.fmt(inc.food) + "）。", "good");
   ENGINE.checkVictory();
   if (S.over) return;
   if (typeof UI !== "undefined") { UI.refreshAll(); }
