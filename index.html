@@ -9,6 +9,13 @@
 <meta name="theme-color" content="#13100b">
 <meta name="description" content="三國演義：天下歸一 —— 純網頁單機回合制策略遊戲，群雄逐鹿、問鼎中原。">
 <title>三國演義：天下歸一</title>
+<!-- App 圖示（iOS 須用 PNG，不支援 SVG 的 apple-touch-icon） -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="天下歸一">
+<meta name="application-name" content="天下歸一">
 <style>
 /* =========================================================================
    三國演義：天下歸一  ——  style.css
@@ -585,6 +592,7 @@ var SCEN = {
   s190: {
     name: "群雄討董",
     year: "公元 190 年・初平元年",
+    y0: 190,
     intro: "董卓焚洛陽、遷都長安，挾天子以令諸侯。關東群雄並起，天下大亂。亂世已至，英雄當興。",
     f: {
       dz:  {name:"董卓",   color:"#6c3483", leader:"dongzhuo",  desc:"挾天子、據雄關，兵多將廣，天下共討之。", diff:"易"},
@@ -683,6 +691,7 @@ var SCEN = {
   s208: {
     name: "赤壁鼎立",
     year: "公元 208 年・建安十三年",
+    y0: 208,
     intro: "曹操平定北方、揮師南下，劉表新喪，荊州震動。劉備依江夏，孫權守江東。天下三分之勢，將定於今日。",
     f: {
       cc:  {name:"曹操", color:"#2e5cb8", leader:"caocao",   desc:"虎踞中原，雄兵百萬，謀臣猛將不可勝數。",   diff:"易"},
@@ -1327,6 +1336,11 @@ var Q = {
   gstate: function (gid) { return S.generals[gid]; },       // 動態狀態
   cityName: function (cid) { return CITY[cid] ? CITY[cid].n : cid; },
   factionOf: function (fid) { return S.factions[fid]; },
+  // 公元紀年：一回合為一季，四季（四回合）為一年
+  gameYear: function (turn) {
+    var y0 = (S.scen && S.scen.y0) || 190;
+    return y0 + Math.floor(((turn || S.turn) - 1) / 4);
+  },
 
   // 某城內的所有武將 id（依本勢力且 status 非 wild/captured）
   generalsIn: function (cid) {
@@ -1786,7 +1800,7 @@ UI.refreshHud = function () {
       '<div class="hud-fac" style="border-color:' + f.color + '">' +
         '<span class="hud-dot" style="background:' + f.color + '"></span>' + f.name +
       '</div>' +
-      '<div class="hud-turn">第 ' + S.turn + ' 年 · ' + U.seasonName(S.season) + '</div>' +
+      '<div class="hud-turn">公元 ' + Q.gameYear() + ' 年 · ' + U.seasonName(S.season) + '（第 ' + S.turn + ' 回合）</div>' +
     '</div>' +
     '<div class="hud-res">' +
       '<span class="res gold">金 ' + U.fmt(f.gold) + '</span>' +
@@ -1843,7 +1857,7 @@ UI.openLog = function () {
   var rows = "";
   for (var i = S.log.length - 1; i >= 0 && i >= S.log.length - 80; i--) {
     var L = S.log[i];
-    rows += '<div class="logrow lt-' + L.type + '"><span class="lr-turn">' + L.turn + '年</span>' + UI.esc(L.text) + '</div>';
+    rows += '<div class="logrow lt-' + L.type + '"><span class="lr-turn">' + Q.gameYear(L.turn) + '年' + U.seasonName((L.turn - 1) % 4) + '</span>' + UI.esc(L.text) + '</div>';
   }
   UI.modal("征戰記事", '<div class="logwrap">' + rows + '</div>');
 };
@@ -1903,7 +1917,7 @@ UI.openCity = function (cid) {
           '<button class="act march" data-a="march">出征<small>攻城</small></button>' +
         '</div>';
     } else {
-      actions = '<div class="acted">本城本年已行動完畢</div>';
+      actions = '<div class="acted">本城本季已行動完畢</div>';
     }
   } else {
     // 敵／中立城：可顯示停戰（敵方勢力）
@@ -2182,7 +2196,7 @@ UI.openFactions = function () {
       '<span class="fr-dot" style="background:' + f.color + '"></span>' +
       '<div class="fr-main"><div class="fr-name">' + f.name + (isMe ? '（我）' : '') + '</div>' +
       '<div class="fr-sub">君主 ' + leader + ' · 城 ' + cities + ' · 將 ' + gens + ' · 兵 ' + U.wan(troops) + '</div></div>' +
-      (isMe ? '' : (cf > 0 ? '<span class="fr-cf">停戰' + cf + '年</span>' :
+      (isMe ? '' : (cf > 0 ? '<span class="fr-cf">停戰' + cf + '季</span>' :
         '<button class="fr-peace" data-f="' + fid + '">停戰</button>')) +
       '</div>';
   }
@@ -2269,7 +2283,7 @@ UI.showEnd = function () {
     '<div class="end-box ' + (win ? "win" : "lose") + '">' +
       '<div class="end-title">' + (win ? "🏆 天下歸一" : "🏳 霸業已矣") + '</div>' +
       '<div class="end-sub">' + (win ? ("「" + f.name + "」廓清四海，一統山河！") : "基業傾頹，徒留青史。") + '</div>' +
-      '<div class="end-stat">歷時 ' + S.turn + ' 年</div>' +
+      '<div class="end-stat">歷時 ' + (Q.gameYear() - (S.scen.y0 || 190) + 1) + ' 載 · 公元 ' + (S.scen.y0 || 190) + '–' + Q.gameYear() + ' 年（' + S.turn + ' 回合）</div>' +
       '<button class="end-go" id="endGo">回到主選單</button>' +
     '</div>';
   UI.modal(win ? "凱旋" : "終局", html);
@@ -3188,10 +3202,10 @@ AI.planAttacks = function (fid) {
       var margin = aStr / (dStr + 1);
       var neutral = (owner === null);
       var threshold = neutral ? 1.0 : 1.18;
-      // 困難 / 普通開局者：諸侯起兵較為審慎，且開局數年內按兵不犯，留其喘息生聚
+      // 困難 / 普通開局者：諸侯起兵較為審慎，且開局數回合內按兵不犯，留其喘息生聚
       if (owner === S.playerFaction && S.playerDiff > 0) {
         threshold += S.playerDiff * 0.22;                     // 困難 +0.44、普通 +0.22
-        var grace = 3 + S.playerDiff * 2;                     // 困難 7 年、普通 5 年
+        var grace = 3 + S.playerDiff * 2;                     // 困難 7 回合、普通 5 回合
         if (S.turn <= grace) threshold += 0.7;
       }
       if (margin >= threshold) {
@@ -3693,7 +3707,7 @@ ENGINE.requestCeasefire = function (targetFid) {
     S.factions[S.playerFaction].ceasefire[targetFid] = turns;
     S.factions[targetFid].ceasefire[S.playerFaction] = turns;
     AUD.play("coin");
-    ENGINE.pushLog("🕊 與「" + S.factions[targetFid].name + "」締結停戰 " + turns + " 年。", "good");
+    ENGINE.pushLog("🕊 與「" + S.factions[targetFid].name + "」締結停戰 " + turns + " 季。", "good");
   } else {
     ENGINE.pushLog("「" + S.factions[targetFid].name + "」斷然回絕了停戰之議。", "bad");
   }
@@ -3854,7 +3868,8 @@ BOOT.renderHelp = function () {
       '<div class="help-body">' +
         '<p><b>目標</b>：統一天下所有城池，成就霸業。</p>' +
         '<p><b>地圖</b>：單指拖曳平移、雙指或滾輪縮放，點選城池開啟操作面板。</p>' +
-        '<p><b>內政</b>：每座城每年可行動一次——興商（增金）、勸農（增糧）、築城（強化城防）、安民（提升民心）、募兵、訪賢（招募在野武將）。</p>' +
+        '<p><b>時序</b>：一回合為一季，春夏秋冬四季為一年。</p>' +
+        '<p><b>內政</b>：每座城每季可行動一次——興商（增金）、勸農（增糧）、築城（強化城防）、安民（提升民心）、募兵、訪賢（招募在野武將）。</p>' +
         '<p><b>軍事</b>：自我方城池向相鄰敵城／空城「出征」。戰鬥為回合制，可選擇突擊、計略、堅守、單挑、火計，善用地形與名將以寡擊眾。</p>' +
         '<p><b>武將</b>：可在我方城池間自由調動（不耗行動）；勝戰後可登用被俘的敵將。</p>' +
         '<p><b>外交</b>：可向他國請求停戰，換取喘息。</p>' +
