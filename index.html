@@ -155,11 +155,18 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .tg-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
 .tgt.sel{border-color:var(--gold-b);background:rgba(201,162,76,.18);box-shadow:0 0 0 1px var(--gold);}
 .tgt.dis{opacity:.45;}
-.gsel{padding:8px 12px;border-radius:8px;min-height:42px;font-size:13.5px;font-weight:600;
+.gsel,.ttsel{padding:8px 12px;border-radius:8px;min-height:42px;font-size:13.5px;font-weight:600;
   background:rgba(0,0,0,.3);border:1px solid rgba(201,162,76,.35);color:#ecdfbe;
   display:flex;flex-direction:column;align-items:center;gap:0;}
-.gsel small{font-size:10px;color:#a8966a;}
-.gsel.sel{border-color:var(--gold-b);background:rgba(201,162,76,.2);color:var(--gold-b);}
+.gsel small,.ttsel small{font-size:10px;color:#a8966a;}
+.gsel.sel,.ttsel.sel{border-color:var(--gold-b);background:rgba(201,162,76,.2);color:var(--gold-b);}
+.ttsel{flex:1 1 30%;}
+.ttsel.dis{opacity:.4;}
+.cstats.ttrow{margin-top:-4px;}
+.cstats.ttrow b{color:#caa84a;}
+.mc-ctr{font-size:13px;font-family:var(--serif);}
+.ctr-good{color:#8fd08a;font-weight:700;}
+.ctr-bad{color:#e8736a;font-weight:700;}
 .mvdest{flex:1 1 30%;padding:10px;border-radius:8px;min-height:48px;font-size:14px;font-weight:600;
   background:rgba(0,0,0,.3);border:1px solid rgba(201,162,76,.35);color:#ecdfbe;
   display:flex;flex-direction:column;align-items:center;}
@@ -317,6 +324,8 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .bt-port{width:84px;height:84px;border-radius:9px;border:2px solid var(--gold-d);object-fit:cover;}
 .bt-port.noport{display:flex;align-items:center;justify-content:center;font-size:12px;color:#90835f;
   background:rgba(0,0,0,.3);}
+.bt-arm{font-size:12px;font-weight:700;color:#e7d6a6;background:rgba(0,0,0,.3);
+  border:1px solid rgba(201,162,76,.35);border-radius:10px;padding:1px 8px;}
 .bt-troops{font-family:var(--serif);font-size:21px;font-weight:800;color:#f3ead4;}
 .bt-bar{width:100%;height:9px;border-radius:5px;background:rgba(0,0,0,.45);overflow:hidden;border:1px solid rgba(0,0,0,.4);}
 .bt-bar.small{height:6px;}
@@ -1332,6 +1341,78 @@ var U = {
   seasonName: function (s) { return ["春", "夏", "秋", "冬"][s % 4]; }
 };
 
+/* ---------------- 兵種與相剋 ----------------
+   三兵種：b 步兵、a 弓兵、c 騎兵。相剋（剋者佔優）：
+   步兵剋騎兵（長槍拒馬）、騎兵剋弓兵（鐵騎踏陣）、弓兵剋步兵（強弩遠射）。
+   城池守軍為混編（cs.tt），出征為單一兵種；守城以最多之兵種應戰。 */
+var TT = {
+  order: ["b", "a", "c"],
+  name: { b: "步兵", a: "弓兵", c: "騎兵" },
+  icon: { b: "🛡", a: "🏹", c: "🐎" },
+  beats: { b: "c", c: "a", a: "b" },   // key 剋 value
+  counters: function (t1, t2) { return TT.beats[t1] === t2; },
+  regionLean: function (zhou) {
+    if (["涼州", "并州", "幽州"].indexOf(zhou) >= 0) return "c"; // 西北尚騎
+    if (["荊州", "揚州", "益州", "交州"].indexOf(zhou) >= 0) return "a"; // 南方善弓
+    return "b"; // 中原重步
+  },
+  split: function (total, lean) {
+    total = Math.max(0, Math.round(total));
+    var maj = Math.round(total * 0.5), rem = total - maj;
+    var o1 = Math.round(rem * 0.5), o2 = rem - o1;
+    var others = TT.order.filter(function (t) { return t !== lean; });
+    var r = { b: 0, a: 0, c: 0 };
+    r[lean] = maj; r[others[0]] = o1; r[others[1]] = o2;
+    return r;
+  },
+  total: function (tt) { return (tt.b || 0) + (tt.a || 0) + (tt.c || 0); },
+  ensure: function (cs) {
+    if (!cs) return null;
+    if (!cs.tt) cs.tt = TT.split(cs.troops || 0, cs._lean || "b");
+    return cs.tt;
+  },
+  sync: function (cs) { cs.troops = TT.total(cs.tt); },
+  add: function (cs, type, n) {
+    TT.ensure(cs); n = Math.max(0, Math.round(n));
+    cs.tt[type] = (cs.tt[type] || 0) + n; TT.sync(cs);
+  },
+  // 依比例自城中扣除 n 兵
+  removeProp: function (cs, n) {
+    TT.ensure(cs); n = Math.max(0, Math.round(n));
+    var tot = TT.total(cs.tt); if (tot <= 0) return 0;
+    n = Math.min(n, tot); var removed = 0, i, t;
+    for (i = 0; i < TT.order.length; i++) {
+      t = TT.order[i];
+      var take = Math.min(cs.tt[t], Math.round(n * (cs.tt[t] / tot)));
+      cs.tt[t] -= take; removed += take;
+    }
+    var rem = n - removed;
+    for (i = 0; i < TT.order.length && rem > 0; i++) {
+      t = TT.order[i]; var k = Math.min(rem, cs.tt[t]); cs.tt[t] -= k; rem -= k; removed += k;
+    }
+    TT.sync(cs); return removed;
+  },
+  // 將城中兵力依比例縮放至 target（守城傷亡用）
+  scaleTo: function (cs, target) {
+    TT.ensure(cs); target = Math.max(0, Math.round(target));
+    var tot = TT.total(cs.tt);
+    if (tot <= 0) { cs.tt = { b: target, a: 0, c: 0 }; TT.sync(cs); return; }
+    if (target >= tot) { cs.tt[TT.dominant(cs)] += (target - tot); TT.sync(cs); return; }
+    TT.removeProp(cs, tot - target);
+  },
+  dominant: function (cs) {
+    TT.ensure(cs); var best = "b", bv = -1, i, t;
+    for (i = 0; i < TT.order.length; i++) { t = TT.order[i]; if ((cs.tt[t] || 0) > bv) { bv = cs.tt[t]; best = t; } }
+    return best;
+  },
+  leanOf: function (cs) { return cs._lean || TT.dominant(cs); },
+  // 自城取出某兵種 n 兵（出征用）
+  take: function (cs, type, n) {
+    TT.ensure(cs); n = Math.max(0, Math.min(Math.round(n), cs.tt[type] || 0));
+    cs.tt[type] -= n; TT.sync(cs); return n;
+  }
+};
+
 /* ---------------- 全域狀態 ---------------- */
 var S = {
   scenKey: null,
@@ -1988,6 +2069,7 @@ UI.openCity = function (cid) {
     genHtml = '<div class="nogen">（城中無將）</div>';
   }
 
+  TT.ensure(cs);
   var statRows =
     '<div class="cstats">' +
       '<div><b>兵力</b>' + U.fmt(cs.troops) + '</div>' +
@@ -1996,6 +2078,11 @@ UI.openCity = function (cid) {
       '<div><b>農業</b>' + cs.agr + '</div>' +
       '<div><b>民心</b>' + cs.pop + '</div>' +
       '<div><b>州</b>' + c.zhou + '</div>' +
+    '</div>' +
+    '<div class="cstats ttrow">' +
+      '<div><b>' + TT.icon.b + ' 步兵</b>' + U.fmt(cs.tt.b || 0) + '</div>' +
+      '<div><b>' + TT.icon.a + ' 弓兵</b>' + U.fmt(cs.tt.a || 0) + '</div>' +
+      '<div><b>' + TT.icon.c + ' 騎兵</b>' + U.fmt(cs.tt.c || 0) + '</div>' +
     '</div>';
 
   var actions = "";
@@ -2087,41 +2174,71 @@ UI.sheet = function (html) {
 /* ---- 募兵子面板 ---- */
 UI.recruitView = function (cid) {
   var cs = S.cityState[cid];
+  TT.ensure(cs);
   var f = S.factions[S.playerFaction];
+  var rate = 0.1 * (1 - (S.playerDiff || 0) * 0.13);
   var maxByCap = 60000 - cs.troops;
-  var maxByGold = Math.floor(f.gold / 0.1);
+  var maxByGold = Math.floor(f.gold / rate);
   var max = Math.min(maxByCap, maxByGold);
   if (max < 500) { UI.toast("無法募兵（兵額或金不足）"); return; }
   var init = Math.min(5000, max);
+  var lean = TT.leanOf(cs);
+  var typeBtns = "";
+  for (var ti = 0; ti < TT.order.length; ti++) {
+    var tk = TT.order[ti];
+    typeBtns += '<button class="gsel' + (tk === lean ? ' sel' : '') + '" data-tt="' + tk + '">' +
+      TT.icon[tk] + ' ' + TT.name[tk] + '<small>剋' + TT.name[TT.beats[tk]] + '</small></button>';
+  }
   var html =
     '<div class="cs-head"><div class="cs-title">募兵 · ' + CITY[cid].n + '</div>' +
       '<button class="cs-close" id="rcBack">返回</button></div>' +
     '<div class="dlg">' +
-      '<div class="dlg-row">現有兵力 ' + U.fmt(cs.troops) + '　國庫 ' + U.fmt(f.gold) + ' 金</div>' +
+      '<div class="dlg-row">現有 ' + UI.ttBrief(cs) + '　國庫 ' + U.fmt(f.gold) + ' 金</div>' +
+      '<div class="dlg-sub">兵種（步剋騎・騎剋弓・弓剋步）</div>' +
+      '<div class="gsels">' + typeBtns + '</div>' +
       '<input type="range" id="rcRange" min="500" max="' + max + '" step="500" value="' + init + '">' +
       '<div class="dlg-big"><span id="rcAmt">' + U.fmt(init) + '</span> 兵</div>' +
-      '<div class="dlg-row">費金 <span id="rcCost">' + U.fmt(Math.round(init * 0.1)) + '</span>　民心 −<span id="rcPop">' + Math.round(init / 2200) + '</span></div>' +
+      '<div class="dlg-row">費金 <span id="rcCost">' + U.fmt(Math.round(init * rate)) + '</span>　民心 −<span id="rcPop">' + Math.round(init / 2200) + '</span></div>' +
       '<button class="dlg-go" id="rcGo">徵募</button>' +
     '</div>';
   UI.sheet(html);
+  var sel = { type: lean };
+  var sheet = UI.el("citySheet");
+  var tbtns = sheet.querySelectorAll(".gsel");
+  for (var b = 0; b < tbtns.length; b++) {
+    (function (btn) {
+      btn.onclick = function () {
+        AUD.play("click");
+        for (var z = 0; z < tbtns.length; z++) tbtns[z].classList.remove("sel");
+        btn.classList.add("sel");
+        sel.type = btn.getAttribute("data-tt");
+      };
+    })(tbtns[b]);
+  }
   var range = UI.el("rcRange");
-  function upd() {
+  range.oninput = function () {
     var v = parseInt(range.value, 10);
     UI.el("rcAmt").textContent = U.fmt(v);
-    UI.el("rcCost").textContent = U.fmt(Math.round(v * 0.1));
+    UI.el("rcCost").textContent = U.fmt(Math.round(v * rate));
     UI.el("rcPop").textContent = Math.round(v / 2200);
-  }
-  range.oninput = upd;
+  };
   UI.el("rcBack").onclick = function () { AUD.play("click"); UI.openCity(cid); };
   UI.el("rcGo").onclick = function () {
     var v = parseInt(range.value, 10);
-    if (ENGINE.actRecruit(cid, v)) { /* afterAction 重開城面板 */ }
+    ENGINE.actRecruit(cid, v, sel.type);
   };
+};
+
+/* 兵種組成簡述：步X 弓Y 騎Z */
+UI.ttBrief = function (cs) {
+  TT.ensure(cs);
+  return TT.order.map(function (t) { return TT.icon[t] + U.wan(cs.tt[t] || 0); }).join(" ");
 };
 
 /* ---- 出征子面板 ---- */
 UI.marchView = function (cid) {
   var cs = S.cityState[cid];
+  TT.ensure(cs);
   var nb = Q.neighbors(cid);
   var targets = [];
   for (var i = 0; i < nb.length; i++) if (S.cityOwner[nb[i]] !== S.playerFaction) targets.push(nb[i]);
@@ -2134,10 +2251,21 @@ UI.marchView = function (cid) {
     var col = own ? S.factions[own].color : "#9aa0a6";
     var nm = own ? S.factions[own].name : "空城";
     var cf = own ? Q.ceasefireLeft(S.playerFaction, own) : 0;
-    tHtml += '<button class="tgt' + (cf > 0 ? ' dis' : '') + '" data-t="' + tid + '"' + (cf > 0 ? ' disabled' : '') + '>' +
+    var dt = TT.dominant(tcs);
+    tHtml += '<button class="tgt' + (cf > 0 ? ' dis' : '') + '" data-t="' + tid + '" data-dt="' + dt + '"' + (cf > 0 ? ' disabled' : '') + '>' +
       '<span class="tg-dot" style="background:' + col + '"></span>' +
-      '<b>' + to.n + '</b><small>' + nm + ' · 兵' + U.wan(tcs.troops) + ' · 防' + tcs.def + (cf > 0 ? ' · 停戰中' : '') + '</small></button>';
+      '<b>' + to.n + '</b><small>' + nm + ' · 兵' + U.wan(tcs.troops) + ' · 主力' + TT.icon[dt] + ' · 防' + tcs.def + (cf > 0 ? ' · 停戰中' : '') + '</small></button>';
   }
+
+  // 出征兵種（僅列有兵者）
+  var ttHtml = "", firstType = null;
+  for (var ti = 0; ti < TT.order.length; ti++) {
+    var tk = TT.order[ti], cnt = cs.tt[tk] || 0, ok = cnt >= 1000;
+    if (ok && !firstType) firstType = tk;
+    ttHtml += '<button class="ttsel' + (ok ? '' : ' dis') + '" data-tt="' + tk + '"' + (ok ? '' : ' disabled') + '>' +
+      TT.icon[tk] + TT.name[tk] + '<small>' + U.wan(cnt) + ' · 剋' + TT.name[TT.beats[tk]] + '</small></button>';
+  }
+  if (!firstType) { UI.toast("各兵種皆不足 1000，無法出征"); return; }
 
   // 統兵將領
   var gens = Q.generalsIn(cid);
@@ -2148,27 +2276,47 @@ UI.marchView = function (cid) {
     gHtml += '<button class="gsel" data-g="' + gens[k] + '">' + g.n + '<small>武' + g.s[1] + '</small></button>';
   }
 
-  var maxT = cs.troops - 500;
-  var initT = Math.min(Math.max(2000, Math.round(maxT * 0.7)), maxT);
-  if (initT < 1000) initT = Math.min(1000, maxT);
-
   var html =
     '<div class="cs-head"><div class="cs-title">出征 · 自 ' + CITY[cid].n + '</div>' +
       '<button class="cs-close" id="mcBack">返回</button></div>' +
     '<div class="dlg">' +
       '<div class="dlg-sub">攻打目標</div>' +
       '<div class="tgts">' + tHtml + '</div>' +
+      '<div class="dlg-sub">出征兵種（步剋騎・騎剋弓・弓剋步）</div>' +
+      '<div class="gsels">' + ttHtml + '</div>' +
       '<div class="dlg-sub">統兵將領</div>' +
       '<div class="gsels">' + gHtml + '</div>' +
       '<div class="dlg-sub">出征兵力（留守至少 500）</div>' +
-      '<input type="range" id="mcRange" min="1000" max="' + Math.max(maxT, 1000) + '" step="500" value="' + initT + '">' +
-      '<div class="dlg-big"><span id="mcAmt">' + U.fmt(initT) + '</span> 兵</div>' +
+      '<input type="range" id="mcRange" min="1000" max="1000" step="500" value="1000">' +
+      '<div class="dlg-big"><span id="mcAmt">—</span> 兵　<span id="mcCtr" class="mc-ctr"></span></div>' +
       '<button class="dlg-go" id="mcGo" disabled>出征</button>' +
     '</div>';
   UI.sheet(html);
 
-  var state = { target: null, gen: "" };
+  var state = { target: null, targetDT: null, gen: "", type: firstType };
   var sheet = UI.el("citySheet");
+  var range = UI.el("mcRange");
+
+  function refreshRange() {
+    var maxByType = cs.tt[state.type] || 0;
+    var maxByGar = cs.troops - 500;
+    var maxT = Math.max(0, Math.min(maxByType, maxByGar));
+    if (maxT < 1000) { range.min = 1000; range.max = 1000; range.value = 1000; range.disabled = true; UI.el("mcAmt").textContent = "0"; }
+    else {
+      range.disabled = false; range.min = 1000; range.max = maxT;
+      var initT = Math.min(Math.max(2000, Math.round(maxT * 0.7)), maxT);
+      range.value = initT; UI.el("mcAmt").textContent = U.fmt(initT);
+    }
+    refreshCtr();
+  }
+  function refreshCtr() {
+    var el = UI.el("mcCtr"); if (!el) return;
+    if (!state.targetDT) { el.textContent = ""; return; }
+    if (TT.counters(state.type, state.targetDT)) el.innerHTML = '<span class="ctr-good">剋' + TT.name[state.targetDT] + '·佔優</span>';
+    else if (TT.counters(state.targetDT, state.type)) el.innerHTML = '<span class="ctr-bad">遭' + TT.name[state.targetDT] + '剋·不利</span>';
+    else el.textContent = "勢均";
+  }
+
   var tgtBtns = sheet.querySelectorAll(".tgt");
   for (var a = 0; a < tgtBtns.length; a++) {
     (function (b) {
@@ -2178,11 +2326,27 @@ UI.marchView = function (cid) {
         for (var z = 0; z < tgtBtns.length; z++) tgtBtns[z].classList.remove("sel");
         b.classList.add("sel");
         state.target = b.getAttribute("data-t");
+        state.targetDT = b.getAttribute("data-dt");
         UI.el("mcGo").disabled = false;
+        refreshCtr();
       };
     })(tgtBtns[a]);
   }
-  var gselBtns = sheet.querySelectorAll(".gsel");
+  var ttBtns = sheet.querySelectorAll(".ttsel");
+  for (var u = 0; u < ttBtns.length; u++) {
+    (function (b) {
+      if (b.disabled) return;
+      if (b.getAttribute("data-tt") === firstType) b.classList.add("sel");
+      b.onclick = function () {
+        AUD.play("click");
+        for (var z = 0; z < ttBtns.length; z++) ttBtns[z].classList.remove("sel");
+        b.classList.add("sel");
+        state.type = b.getAttribute("data-tt");
+        refreshRange();
+      };
+    })(ttBtns[u]);
+  }
+  var gselBtns = sheet.querySelectorAll(".gsels .gsel");
   for (var c = 0; c < gselBtns.length; c++) {
     (function (b) {
       b.onclick = function () {
@@ -2193,14 +2357,14 @@ UI.marchView = function (cid) {
       };
     })(gselBtns[c]);
   }
-  var range = UI.el("mcRange");
   range.oninput = function () { UI.el("mcAmt").textContent = U.fmt(parseInt(range.value, 10)); };
   UI.el("mcBack").onclick = function () { AUD.play("click"); UI.openCity(cid); };
   UI.el("mcGo").onclick = function () {
     if (!state.target) { UI.toast("請先選擇目標"); return; }
     AUD.play("charge");
-    ENGINE.actMarch(cid, state.target, state.gen || null, parseInt(range.value, 10));
+    ENGINE.actMarch(cid, state.target, state.gen || null, parseInt(range.value, 10), state.type);
   };
+  refreshRange();
 };
 
 /* ---- 武將調動（可率兵同行） ---- */
@@ -2436,7 +2600,7 @@ var BATTLE = {
 };
 
 /* ---- 由武將 id 生出戰鬥側資料 ---- */
-BATTLE.makeSide = function (fid, genId, troops, wall) {
+BATTLE.makeSide = function (fid, genId, troops, wall, ttype) {
   var g = genId ? GEN[genId] : null;
   var st = genId ? S.generals[genId] : null;
   var inj = st && st.status === "injured";
@@ -2457,6 +2621,7 @@ BATTLE.makeSide = function (fid, genId, troops, wall) {
     wall: wall || 0,
     fireUsed: false,
     injured: inj,
+    ttype: TT.name[ttype] ? ttype : "b",   // 兵種：步/弓/騎
     isPlayer: (fid === S.playerFaction),
     // 困難 / 普通開局者：將士用命，戰力略增（攻守皆然）
     edge: (fid === S.playerFaction) ? (typeof ENGINE !== "undefined" ? ENGINE.playerEdge() : 1) : 1
@@ -2525,8 +2690,19 @@ BATTLE.step = function (att, def, attT, defT) {
 
   /* —— 一般廝殺 —— */
   var aBefore = att.troops, dBefore = def.troops;
-  var ea = Math.pow(Math.max(att.troops, 1), 0.88) * BATTLE._qual(att) * BATTLE._off(attT) * (att.edge || 1);
-  var ed = Math.pow(Math.max(def.troops, 1), 0.88) * BATTLE._qual(def) * BATTLE._off(defT) * (def.edge || 1);
+  // 兵種相剋：剋制方戰力增、被剋方減（攻堅戰約使勝率 43%→78%）
+  var attMul = 1, defMul = 1;
+  if (att.ttype && def.ttype) {
+    if (TT.counters(att.ttype, def.ttype)) { attMul = 1.06; defMul = 0.97; }
+    else if (TT.counters(def.ttype, att.ttype)) { defMul = 1.06; attMul = 0.97; }
+  }
+  if (!att._ctrShown && (attMul > 1 || defMul > 1)) {
+    att._ctrShown = true;
+    if (attMul > 1) res.ev.push("⚔ " + TT.name[att.ttype] + "剋" + TT.name[def.ttype] + "，我軍佔盡上風！");
+    else res.ev.push("⚠ 敵之" + TT.name[def.ttype] + "剋我" + TT.name[att.ttype] + "，戰之不利。");
+  }
+  var ea = Math.pow(Math.max(att.troops, 1), 0.88) * BATTLE._qual(att) * BATTLE._off(attT) * (att.edge || 1) * attMul;
+  var ed = Math.pow(Math.max(def.troops, 1), 0.88) * BATTLE._qual(def) * BATTLE._off(defT) * (def.edge || 1) * defMul;
   var total = ea + ed;
   var shareA = ea / total;                  // 攻方戰力佔比 → 守方傷亡
   var force = att.troops + def.troops;
@@ -2655,9 +2831,10 @@ BATTLE.begin = function (opt) {
   var defGenId = Q.bestGeneralIn(toCity, false);
   var defTroops = S.cityState[toCity].troops;
   var wall = S.cityState[toCity].def;
+  var defType = TT.dominant(S.cityState[toCity]);   // 守軍以最多兵種應戰
 
-  var att = BATTLE.makeSide(opt.attFid, opt.attGenId, opt.attTroops, 0);
-  var def = BATTLE.makeSide(defFid, defGenId, defTroops, wall);
+  var att = BATTLE.makeSide(opt.attFid, opt.attGenId, opt.attTroops, 0, opt.attType);
+  var def = BATTLE.makeSide(defFid, defGenId, defTroops, wall, defType);
 
   BATTLE.ctx = {
     fromCity: fromCity, toCity: toCity,
@@ -2792,9 +2969,11 @@ BATTLE.applyOutcome = function (winnerSide, silent) {
     /* —— 破城 —— */
     var defFid = c.defFid;
     var defenders = Q.generalsIn(toCity);           // 破城前守軍諸將
-    // 換主
+    // 換主：入城兵力即攻方此次出征之兵種
     S.cityOwner[toCity] = att.fid;
-    S.cityState[toCity].troops = Math.max(att.troops, 500);
+    S.cityState[toCity].tt = { b: 0, a: 0, c: 0 };
+    S.cityState[toCity].tt[att.ttype || "b"] = Math.max(att.troops, 500);
+    TT.sync(S.cityState[toCity]);
     S.cityState[toCity].pop = U.clamp(S.cityState[toCity].pop - 15, 10, 100);
     S.cityState[toCity].acted = true;
     // 攻方主將進城
@@ -2830,8 +3009,9 @@ BATTLE.applyOutcome = function (winnerSide, silent) {
     if (!silent) AUD.play("victory");
   } else {
     /* —— 守城成功 / 攻方撤退 —— */
-    S.cityState[fromCity].troops += Math.max(att.troops, 0);
-    S.cityState[toCity].troops = Math.max(def.troops, 300);
+    // 殘存攻方依原兵種返回原城；守軍依比例計傷
+    TT.add(S.cityState[fromCity], att.ttype || "b", Math.max(att.troops, 0));
+    TT.scaleTo(S.cityState[toCity], Math.max(def.troops, 300));
     S.cityState[toCity].pop = U.clamp(S.cityState[toCity].pop - 3, 5, 100);
     // 攻方主將留在原城（未移動）
   }
@@ -2937,8 +3117,14 @@ BATTLE.renderStage = function () {
   var pSide = c.playerSide;
   var mine = c[pSide], foe = c[pSide === "att" ? "def" : "att"];
   var role = pSide === "att" ? "攻城" : "守城";
+  // 兵種相剋提示
+  var ctrTxt = "";
+  if (mine.ttype && foe.ttype) {
+    if (TT.counters(mine.ttype, foe.ttype)) ctrTxt = "　·　" + TT.name[mine.ttype] + "剋" + TT.name[foe.ttype] + "，我軍佔優";
+    else if (TT.counters(foe.ttype, mine.ttype)) ctrTxt = "　·　敵" + TT.name[foe.ttype] + "剋我" + TT.name[mine.ttype] + "，勢危";
+  }
   document.getElementById("battleTitle").textContent =
-    "⚔ " + Q.cityName(c.toCity) + "　·　" + role + "戰";
+    "⚔ " + Q.cityName(c.toCity) + "　·　" + role + "戰" + ctrTxt;
 
   function sideHtml(side, who) {
     var portrait = side.genId ? PORTRAIT.toDataURL(GEN[side.genId], 96, side.color) : "";
@@ -2946,6 +3132,7 @@ BATTLE.renderStage = function () {
       '<div class="bt-side ' + who + '" id="btSide-' + who + '">' +
         '<div class="bt-banner" style="background:' + side.color + '">' + side.name + (side.injured ? '（傷）' : '') + '</div>' +
         (portrait ? '<img class="bt-port" src="' + portrait + '">' : '<div class="bt-port noport">無將</div>') +
+        '<div class="bt-arm">' + TT.icon[side.ttype || "b"] + ' ' + TT.name[side.ttype || "b"] + '</div>' +
         '<div class="bt-troops" id="btTroops-' + who + '">' + U.fmt(side.troops) + '</div>' +
         '<div class="bt-bar"><div class="bt-bar-fill troopfill" id="btTroopBar-' + who + '"></div></div>' +
         '<div class="bt-morale">士氣 <span id="btMorTxt-' + who + '">' + Math.round(side.morale) + '</span></div>' +
@@ -3250,7 +3437,7 @@ AI.economy = function (fid) {
         var amt = Math.min(9000, 60000 - cs.troops);
         var cost = Math.round(amt * 0.1);
         if (amt >= 1000 && f.gold >= cost) {
-          cs.troops += amt; f.gold -= cost;
+          TT.add(cs, TT.leanOf(cs), amt); f.gold -= cost;
           cs.pop = U.clamp(cs.pop - Math.round(amt / 2200), 5, 100);
         }
       } else if (cs.def < 72 && f.gold >= 280) {
@@ -3262,7 +3449,7 @@ AI.economy = function (fid) {
       else if (cs.troops < 16000 && f.gold >= 500) {
         var a2 = Math.min(6000, 60000 - cs.troops);
         var c2 = Math.round(a2 * 0.1);
-        if (a2 >= 1000 && f.gold >= c2) { cs.troops += a2; f.gold -= c2; }
+        if (a2 >= 1000 && f.gold >= c2) { TT.add(cs, TT.leanOf(cs), a2); f.gold -= c2; }
       }
     }
   }
@@ -3388,16 +3575,18 @@ AI.planAttacks = function (fid) {
 AI.execAttack = function (fid, atk, onComplete) {
   if (!AI.attackValid(fid, atk)) { if (onComplete) onComplete(); return; }
   var cs = S.cityState[atk.from];
+  TT.ensure(cs);
   var avail = cs.troops - 500;
   if (avail < 1500) { if (onComplete) onComplete(); return; }
   var gen = Q.bestGeneralIn(atk.from, true) || Q.bestGeneralIn(atk.from, false);
-  cs.troops -= avail;
+  var atkType = TT.dominant(cs);          // 以主力兵種出戰
+  TT.removeProp(cs, avail);               // 依比例出兵，維持全軍規模
   var who = S.factions[fid].name;
-  ENGINE.pushLog("⚔ 「" + who + "」自 " + Q.cityName(atk.from) + " 興兵 " + U.fmt(avail) + " 攻 " + Q.cityName(atk.to) + "！", "war");
+  ENGINE.pushLog("⚔ 「" + who + "」自 " + Q.cityName(atk.from) + " 興" + TT.name[atkType] + " " + U.fmt(avail) + " 攻 " + Q.cityName(atk.to) + "！", "war");
 
   BATTLE.begin({
     fromCity: atk.from, toCity: atk.to,
-    attFid: fid, attGenId: gen, attTroops: avail,
+    attFid: fid, attGenId: gen, attTroops: avail, attType: atkType,
     onComplete: onComplete || function () {}
   });
 };
@@ -3492,8 +3681,10 @@ ENGINE.initGame = function (scenKey, playerFid) {
       com: base.com,
       agr: base.agr,
       pop: U.clamp((owner ? 70 : 55) + popBuff, 5, 100),
-      acted: false
+      acted: false,
+      _lean: TT.regionLean(base.zhou)
     };
+    S.cityState[cid].tt = TT.split(troops, S.cityState[cid]._lean);
   }
 
   // 武將
@@ -3564,8 +3755,7 @@ ENGINE.income = function (fid) {
     // 缺糧 → 各城逃兵
     for (i = 0; i < cities.length; i++) {
       cs = S.cityState[cities[i]];
-      var lose = Math.round(cs.troops * 0.08);
-      cs.troops = Math.max(0, cs.troops - lose);
+      TT.removeProp(cs, Math.round(cs.troops * 0.08));
       cs.pop = U.clamp(cs.pop - 2, 5, 100);
     }
   }
@@ -3683,21 +3873,18 @@ ENGINE.factionEvent = function (fid, visible) {
     if (visible) ENGINE.pushLog("💰 商旅雲集 " + cn + "，國庫充盈（金 +400）。", "good");
   } else if (roll <= 66) {
     // 水患
-    var l1 = Math.round(cs.troops * 0.05);
-    cs.troops = Math.max(0, cs.troops - l1);
+    TT.removeProp(cs, Math.round(cs.troops * 0.05));
     cs.pop = U.clamp(cs.pop - 9, 5, 100);
     if (visible) ENGINE.pushLog("🌊 " + cn + "大水，房舍漂沒，士卒折損。", "bad");
   } else if (roll <= 82) {
     // 疫病
-    var l2 = Math.round(cs.troops * 0.07);
-    cs.troops = Math.max(0, cs.troops - l2);
+    TT.removeProp(cs, Math.round(cs.troops * 0.07));
     cs.pop = U.clamp(cs.pop - 7, 5, 100);
     if (visible) ENGINE.pushLog("☠ " + cn + "疫病流行，軍民染疾。", "bad");
   } else if (roll <= 92) {
     // 民變（低民心才嚴重）
     if (cs.pop < 45) {
-      var l3 = Math.round(cs.troops * 0.10);
-      cs.troops = Math.max(0, cs.troops - l3);
+      TT.removeProp(cs, Math.round(cs.troops * 0.10));
       cs.pop = U.clamp(cs.pop + 6, 5, 100);
       if (visible) ENGINE.pushLog("🔥 " + cn + "民心思亂，爆發民變！", "bad");
     } else if (visible) {
@@ -3752,9 +3939,10 @@ ENGINE.actGovern = function (cid) {
   return true;
 };
 
-ENGINE.actRecruit = function (cid, amount) {
+ENGINE.actRecruit = function (cid, amount, type) {
   if (!ENGINE.canAct(cid)) return false;
   var cs = S.cityState[cid];
+  type = TT.name[type] ? type : "b";
   amount = Math.round(amount);
   var cap = 60000 - cs.troops;
   if (amount > cap) amount = cap;
@@ -3763,11 +3951,11 @@ ENGINE.actRecruit = function (cid, amount) {
   var costRate = 0.1 * (1 - (S.playerDiff || 0) * 0.13);   // 困難 ≈0.074、普通 ≈0.087
   var cost = Math.round(amount * costRate);
   if (!ENGINE.spend(cost)) { ENGINE.toast("金不足"); return false; }
-  cs.troops += amount;
+  TT.add(cs, type, amount);
   cs.pop = U.clamp(cs.pop - Math.round(amount / 2200), 5, 100);
   cs.acted = true;
   AUD.play("coin");
-  ENGINE.pushLog(Q.cityName(cid) + " 募兵 " + U.fmt(amount) + "（費金 " + cost + "）。", "info");
+  ENGINE.pushLog(Q.cityName(cid) + " 募" + TT.name[type] + " " + U.fmt(amount) + "（費金 " + cost + "）。", "info");
   ENGINE.afterAction(cid);
   return true;
 };
@@ -3815,14 +4003,24 @@ ENGINE.moveGeneral = function (gid, toCid, troops) {
   if (S.cityOwner[toCid] !== S.playerFaction) return false;
   var fromCid = g.loc;
   troops = Math.max(0, Math.round(troops || 0));
-  // 帶兵僅限相鄰城池，且原城至少留守 500
+  // 帶兵僅限相鄰城池，且原城至少留守 500；依比例調動各兵種
   if (troops > 0 && fromCid && Q.isAdj(fromCid, toCid)) {
-    var src = S.cityState[fromCid];
+    var src = S.cityState[fromCid], dst = S.cityState[toCid];
+    TT.ensure(src); TT.ensure(dst);
     var avail = Math.max(0, src.troops - 500);
     if (troops > avail) troops = avail;
     if (troops > 0) {
-      src.troops -= troops;
-      S.cityState[toCid].troops += troops;
+      var tot = src.troops, moved = 0, i, t;
+      for (i = 0; i < TT.order.length; i++) {
+        t = TT.order[i];
+        var mv = Math.min(src.tt[t], Math.round(troops * (src.tt[t] / tot)));
+        src.tt[t] -= mv; dst.tt[t] = (dst.tt[t] || 0) + mv; moved += mv;
+      }
+      var rem = troops - moved;
+      for (i = 0; i < TT.order.length && rem > 0; i++) {
+        t = TT.order[i]; var k = Math.min(rem, src.tt[t]); src.tt[t] -= k; dst.tt[t] += k; rem -= k;
+      }
+      TT.sync(src); TT.sync(dst);
     }
   } else {
     troops = 0;
@@ -3833,26 +4031,32 @@ ENGINE.moveGeneral = function (gid, toCid, troops) {
 };
 
 /* 出征 */
-ENGINE.actMarch = function (fromCid, toCid, genId, troops) {
+ENGINE.actMarch = function (fromCid, toCid, genId, troops, type) {
   if (!ENGINE.canAct(fromCid)) return false;
   if (!Q.isAdj(fromCid, toCid)) { ENGINE.toast("並不相鄰"); return false; }
   var targetOwner = S.cityOwner[toCid];
   if (targetOwner === S.playerFaction) { ENGINE.toast("乃我方城池"); return false; }
   if (targetOwner && Q.ceasefireLeft(S.playerFaction, targetOwner) > 0) { ENGINE.toast("停戰盟約未滿"); return false; }
   var cs = S.cityState[fromCid];
+  TT.ensure(cs);
+  type = TT.name[type] ? type : TT.dominant(cs);
   troops = Math.round(troops);
-  if (troops > cs.troops - 500) troops = cs.troops - 500;   // 至少留 500 守城
-  if (troops < 1000) { ENGINE.toast("出征兵力過少"); return false; }
+  // 受限於該兵種存量與留守 500
+  var maxByType = cs.tt[type] || 0;
+  var maxByGarrison = cs.troops - 500;
+  if (troops > maxByType) troops = maxByType;
+  if (troops > maxByGarrison) troops = maxByGarrison;
+  if (troops < 1000) { ENGINE.toast("該兵種出征兵力過少"); return false; }
   if (genId && (S.generals[genId].loc !== fromCid || S.generals[genId].status === "injured")) genId = null;
 
-  cs.troops -= troops;
+  TT.take(cs, type, troops);
   cs.acted = true;
-  ENGINE.pushLog("⚔ 自 " + Q.cityName(fromCid) + " 發兵 " + U.fmt(troops) + " 攻 " + Q.cityName(toCid) + "！", "war");
+  ENGINE.pushLog("⚔ 自 " + Q.cityName(fromCid) + " 發" + TT.name[type] + " " + U.fmt(troops) + " 攻 " + Q.cityName(toCid) + "！", "war");
   if (typeof UI !== "undefined") UI.closeCity();
 
   BATTLE.begin({
     fromCity: fromCid, toCity: toCid,
-    attFid: S.playerFaction, attGenId: genId, attTroops: troops,
+    attFid: S.playerFaction, attGenId: genId, attTroops: troops, attType: type,
     onComplete: function () {
       ENGINE.afterAction(toCid, true);
     }
@@ -3974,6 +4178,7 @@ ENGINE.load = function () {
     S.playerDiff = (typeof d.playerDiff === "number") ? d.playerDiff : ENGINE.diffTier(d.playerFaction);
     S.factions = d.factions; S.cityOwner = d.cityOwner;
     S.cityState = d.cityState; S.generals = d.generals;
+    for (var _c in S.cityState) TT.ensure(S.cityState[_c]); // 舊存檔補建兵種組成
     S.wildPool = d.wildPool; S.log = d.log || [];
     S.selectedCity = null; S.over = false; S.outcome = null;
     ENGINE.busy = false;
@@ -4048,6 +4253,7 @@ BOOT.renderHelp = function () {
         '<p><b>時序</b>：一回合為一季，春夏秋冬四季為一年。</p>' +
         '<p><b>內政</b>：每座城每季可行動一次——興商（增金）、勸農（增糧）、築城（強化城防）、安民（提升民心）、募兵、訪賢（招募在野武將）。</p>' +
         '<p><b>軍事</b>：自我方城池向相鄰敵城／空城「出征」。戰鬥為回合制，可選擇突擊、計略、堅守、單挑、火計，善用地形與名將以寡擊眾。</p>' +
+        '<p><b>兵種</b>：分步兵🛡、弓兵🏹、騎兵🐎，募兵時擇一徵集。相剋為——步兵剋騎兵、騎兵剋弓兵、弓兵剋步兵；剋制方戰力大增。出征選兵種，守城以最多之兵種應戰，宜以己之長攻彼之短。</p>' +
         '<p><b>武將</b>：可在我方城池間自由調動（不耗行動），調往相鄰城池時可率兵同行（原城至少留守 500）；勝戰後可登用被俘的敵將。</p>' +
         '<p><b>單挑</b>：戰鬥中選「單挑」遣將挑戰敵將，勝者重挫敵軍士氣——名將對決另有單挑畫面。</p>' +
         '<p><b>外交</b>：可向他國請求停戰，換取喘息。</p>' +
