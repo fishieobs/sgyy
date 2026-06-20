@@ -330,15 +330,40 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .shake{animation:shake .32s ease;}
 @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-6px);}40%{transform:translateX(6px);}60%{transform:translateX(-4px);}80%{transform:translateX(4px);}}
 
-/* 單挑彈窗 */
-#duelBox{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) scale(.85);
-  width:min(88vw,400px);z-index:85;opacity:0;pointer-events:none;transition:.25s;
-  background:linear-gradient(180deg,#2a1b14,#180f0a);border:2px solid var(--gold);border-radius:14px;
-  padding:14px 16px;box-shadow:var(--shadow);}
+/* 單挑畫面 */
+#duelBox{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%) scale(.9);
+  width:min(92vw,440px);z-index:85;opacity:0;pointer-events:none;
+  transition:opacity .28s,transform .28s cubic-bezier(.2,.9,.3,1.25);}
 #duelBox.show{opacity:1;transform:translate(-50%,-50%) scale(1);}
-.duel-title{text-align:center;font-family:var(--serif);font-size:20px;color:#e8736a;letter-spacing:4px;margin-bottom:10px;}
-.duel-ex{font-size:13px;color:#e3d9bf;line-height:1.7;padding:2px 0;border-bottom:1px dashed rgba(201,162,76,.2);}
-.duel-verdict{text-align:center;font-family:var(--serif);font-size:16px;font-weight:700;color:var(--gold-b);margin-top:10px;}
+#duelBox::before{content:"";position:fixed;inset:0;z-index:-1;
+  background:radial-gradient(circle at 50% 44%,rgba(0,0,0,.34),rgba(0,0,0,.74));}
+.duel-card{background:linear-gradient(180deg,#2a1b14,#150d08);border:2px solid var(--gold);
+  border-radius:16px;padding:14px 14px 16px;box-shadow:0 14px 44px rgba(0,0,0,.6);}
+.duel-title{text-align:center;font-family:var(--serif);font-size:20px;color:#f0cf78;letter-spacing:6px;
+  margin-bottom:12px;text-shadow:0 0 14px rgba(232,115,106,.6);}
+.duel-stage{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;}
+.duel-fighter{flex:1;max-width:42%;display:flex;flex-direction:column;align-items:center;gap:4px;transition:.3s;}
+.duel-fighter img{width:92px;height:92px;border-radius:12px;border:2.5px solid var(--gold-d);object-fit:cover;
+  box-shadow:0 4px 14px rgba(0,0,0,.5);}
+.df-name{font-family:var(--serif);font-size:15px;font-weight:700;color:#f3ead4;}
+.df-war{font-size:11px;color:#e8a9a0;}
+.duel-fighter.mine{animation:duelInL .45s ease both;}
+.duel-fighter.foe{animation:duelInR .45s ease both;}
+.duel-fighter.win img{border-color:var(--gold-b);box-shadow:0 0 24px rgba(240,207,120,.85);}
+.duel-fighter.win .df-name{color:var(--gold-b);}
+.duel-fighter.lose{filter:grayscale(.55) brightness(.66);opacity:.82;}
+@keyframes duelInL{0%{transform:translateX(-64px);opacity:0;}100%{transform:translateX(0);opacity:1;}}
+@keyframes duelInR{0%{transform:translateX(64px);opacity:0;}100%{transform:translateX(0);opacity:1;}}
+.duel-clash{font-size:34px;color:var(--gold-b);filter:drop-shadow(0 0 10px rgba(240,207,120,.7));
+  animation:duelClash .6s ease .35s both;}
+@keyframes duelClash{0%{transform:scale(.4) rotate(-26deg);opacity:0;}
+  45%{transform:scale(1.7) rotate(12deg);opacity:1;}70%{transform:scale(1.05) rotate(-4deg);}100%{transform:scale(1.25);}}
+.duel-exs{margin:4px 2px 0;}
+.duel-ex{font-size:12.5px;color:#e3d9bf;line-height:1.55;padding:2px 4px;
+  border-bottom:1px dashed rgba(201,162,76,.18);display:flex;justify-content:space-between;gap:8px;}
+.duel-ex .de-a{color:#bfe0a0;} .duel-ex .de-f{color:#e8a9a0;}
+.duel-verdict{text-align:center;font-family:var(--serif);font-size:17px;font-weight:700;color:var(--gold-b);
+  margin-top:10px;letter-spacing:2px;text-shadow:0 0 12px rgba(240,207,120,.4);}
 
 /* 戰鬥記錄 */
 #battleLog{flex:1;min-height:60px;margin:10px 0;overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -2107,35 +2132,63 @@ UI.marchView = function (cid) {
   };
 };
 
-/* ---- 武將調動 ---- */
+/* ---- 武將調動（可率兵同行） ---- */
 UI.moveGeneralView = function (gid, fromCid) {
   var dests = Q.citiesOf(S.playerFaction);
   var btns = "";
   for (var i = 0; i < dests.length; i++) {
     if (dests[i] === fromCid) continue;
+    var adj = Q.isAdj(fromCid, dests[i]);
     btns += '<button class="mvdest" data-c="' + dests[i] + '">' + CITY[dests[i]].n +
-      '<small>兵' + U.wan(S.cityState[dests[i]].troops) + '</small></button>';
+      '<small>兵' + U.wan(S.cityState[dests[i]].troops) + (adj ? ' · 相鄰可帶兵' : ' · 遠調') + '</small></button>';
   }
   if (!btns) { UI.toast("別無他城可調"); return; }
   var html =
     '<div class="cs-head"><div class="cs-title">調動 ' + GEN[gid].n + '</div>' +
       '<button class="cs-close" id="mvBack">返回</button></div>' +
-    '<div class="dlg"><div class="dlg-sub">移往（自由調動，不耗行動）</div>' +
+    '<div class="dlg"><div class="dlg-sub">選擇去處（相鄰城池可率兵同行，不耗行動）</div>' +
     '<div class="mvdests">' + btns + '</div></div>';
   UI.sheet(html);
   UI.el("mvBack").onclick = function () { AUD.play("click"); UI.openCity(fromCid); };
   var ds = UI.el("citySheet").querySelectorAll(".mvdest");
   for (var j = 0; j < ds.length; j++) {
     (function (b) {
-      b.onclick = function () {
-        var to = b.getAttribute("data-c");
-        ENGINE.moveGeneral(gid, to);
-        UI.toast(GEN[gid].n + " 已移駐 " + CITY[to].n);
-        if (typeof MAP !== "undefined") MAP.draw();
-        UI.openCity(fromCid);
-      };
+      b.onclick = function () { AUD.play("select"); UI.moveConfirmView(gid, fromCid, b.getAttribute("data-c")); };
     })(ds[j]);
   }
+};
+
+/* ---- 調動確認：選擇隨行兵力 ---- */
+UI.moveConfirmView = function (gid, fromCid, toCid) {
+  var adj = Q.isAdj(fromCid, toCid);
+  var maxT = Math.max(0, S.cityState[fromCid].troops - 500);
+  var canTroop = adj && maxT >= 500;
+  var body = canTroop
+    ? '<div class="dlg-sub">隨行兵力（原城至少留守 500；0 為輕騎前往）</div>' +
+      '<input type="range" id="mvRange" min="0" max="' + maxT + '" step="500" value="0">' +
+      '<div class="dlg-big"><span id="mvAmt">0</span> 兵</div>'
+    : '<div class="dlg-sub">' + (adj ? "原城兵力不足，僅可輕騎前往。" : "與原城並不相鄰，僅可輕騎前往（不可帶兵）。") + '</div>';
+  var html =
+    '<div class="cs-head"><div class="cs-title">調動 ' + GEN[gid].n + '</div>' +
+      '<button class="cs-close" id="mvBack">返回</button></div>' +
+    '<div class="dlg">' +
+      '<div class="dlg-sub">' + CITY[fromCid].n + ' ﹥ ' + CITY[toCid].n + '</div>' +
+      body +
+      '<button class="dlg-go" id="mvGo">確認調動</button>' +
+    '</div>';
+  UI.sheet(html);
+  if (canTroop) {
+    var r = UI.el("mvRange");
+    r.oninput = function () { UI.el("mvAmt").textContent = U.fmt(parseInt(r.value, 10)); };
+  }
+  UI.el("mvBack").onclick = function () { AUD.play("click"); UI.moveGeneralView(gid, fromCid); };
+  UI.el("mvGo").onclick = function () {
+    var tr = canTroop ? parseInt(UI.el("mvRange").value, 10) : 0;
+    ENGINE.moveGeneral(gid, toCid, tr);
+    UI.toast(GEN[gid].n + " 移駐 " + CITY[toCid].n + (tr > 0 ? ("，率兵 " + U.fmt(tr)) : ""));
+    if (typeof MAP !== "undefined") MAP.draw();
+    UI.openCity(fromCid);
+  };
 };
 
 /* ---------------- 武將一覽 ---------------- */
@@ -2483,7 +2536,13 @@ BATTLE.doDuel = function (actor, foe) {
     if (Math.abs(pts) >= 3) break;
   }
   var winner = pts > 0 ? "actor" : (pts < 0 ? "target" : "draw");
-  return { winner: winner, exchanges: ex, actorName: actor.name, foeName: foe.name };
+  return {
+    winner: winner, exchanges: ex,
+    actorName: actor.name, foeName: foe.name,
+    actorGen: actor.genId, foeGen: foe.genId,
+    actorColor: actor.color, foeColor: foe.color,
+    actorWar: Math.round(actor.war), foeWar: Math.round(foe.war)
+  };
 };
 
 /* ====================== 自動解算（AI 對 AI／快速） ====================== */
@@ -2614,7 +2673,7 @@ BATTLE.runRoundAnim = function (attT, defT, done) {
     BATTLE.updateStage();
     BATTLE.busy = false;
     done();
-  }, res.duel && !res.declined ? 1500 : 750);
+  }, res.duel && !res.declined ? 2050 : 750);
 };
 BATTLE.sideLoss = function (res, who) {
   var pSide = BATTLE.ctx.playerSide;
@@ -2922,16 +2981,43 @@ BATTLE.flash = function (attT, defT, res) {
 BATTLE.showDuel = function (d) {
   var box = document.getElementById("duelBox");
   if (!box) return;
-  var lines = "";
-  for (var i = 0; i < d.exchanges.length; i++) {
-    lines += '<div class="duel-ex">第' + (i + 1) + '合　' + d.actorName + ' ' + d.exchanges[i].actor +
-      '　vs　' + d.foeName + ' ' + d.exchanges[i].foe + '</div>';
+  function fighter(gid, color, war, cls) {
+    var p = gid ? PORTRAIT.toDataURL(GEN[gid], 96, color) : "";
+    return '<div class="duel-fighter ' + cls + '" id="duelF-' + cls + '">' +
+      (p ? '<img src="' + p + '" style="border-color:' + color + '">'
+         : '<div class="bt-port noport" style="width:92px;height:92px">無將</div>') +
+      '<div class="df-name">' + (gid ? GEN[gid].n : "—") + '</div>' +
+      '<div class="df-war">武 ' + war + '</div>' +
+    '</div>';
   }
-  var verdict = d.winner === "draw" ? "不分勝負！" :
-    ((d.winner === "actor" ? d.actorName : d.foeName) + " 技高一籌！");
-  box.innerHTML = '<div class="duel-title">⚔ 單挑 ⚔</div>' + lines + '<div class="duel-verdict">' + verdict + '</div>';
+  var exs = "";
+  for (var i = 0; i < d.exchanges.length; i++) {
+    exs += '<div class="duel-ex"><span>第 ' + (i + 1) + ' 合</span>' +
+      '<span class="de-a">' + d.actorName + ' ' + d.exchanges[i].actor + '</span>' +
+      '<span class="de-f">' + d.foeName + ' ' + d.exchanges[i].foe + '</span></div>';
+  }
+  var verdict = d.winner === "draw" ? "棋逢敵手，勝負難分！" :
+    ((d.winner === "actor" ? d.actorName : d.foeName) + " 技高一籌，力克強敵！");
+  box.innerHTML =
+    '<div class="duel-card">' +
+      '<div class="duel-title">⚔ 單 挑 ⚔</div>' +
+      '<div class="duel-stage">' +
+        fighter(d.actorGen, d.actorColor, d.actorWar, "mine") +
+        '<div class="duel-clash">⚔</div>' +
+        fighter(d.foeGen, d.foeColor, d.foeWar, "foe") +
+      '</div>' +
+      '<div class="duel-exs">' + exs + '</div>' +
+      '<div class="duel-verdict">' + verdict + '</div>' +
+    '</div>';
+  var winCls = d.winner === "actor" ? "mine" : (d.winner === "target" ? "foe" : null);
+  if (winCls) {
+    var w = box.querySelector("#duelF-" + winCls);
+    var l = box.querySelector("#duelF-" + (winCls === "mine" ? "foe" : "mine"));
+    if (w) w.classList.add("win");
+    if (l) l.classList.add("lose");
+  }
   box.classList.add("show");
-  setTimeout(function () { box.classList.remove("show"); }, 1400);
+  setTimeout(function () { box.classList.remove("show"); }, 1850);
 };
 
 BATTLE.log = function (text, cls) {
@@ -3651,13 +3737,27 @@ ENGINE.actSearch = function (cid) {
   return true;
 };
 
-/* 自由調動武將（同勢力城池間，不耗行動） */
-ENGINE.moveGeneral = function (gid, toCid) {
+/* 自由調動武將（同勢力城池間，不耗行動）；相鄰城池可率兵同行 */
+ENGINE.moveGeneral = function (gid, toCid, troops) {
   var g = S.generals[gid];
   if (!g || g.faction !== S.playerFaction) return false;
   if (S.cityOwner[toCid] !== S.playerFaction) return false;
+  var fromCid = g.loc;
+  troops = Math.max(0, Math.round(troops || 0));
+  // 帶兵僅限相鄰城池，且原城至少留守 500
+  if (troops > 0 && fromCid && Q.isAdj(fromCid, toCid)) {
+    var src = S.cityState[fromCid];
+    var avail = Math.max(0, src.troops - 500);
+    if (troops > avail) troops = avail;
+    if (troops > 0) {
+      src.troops -= troops;
+      S.cityState[toCid].troops += troops;
+    }
+  } else {
+    troops = 0;
+  }
   g.loc = toCid;
-  AUD.play("click");
+  AUD.play(troops > 0 ? "coin" : "click");
   return true;
 };
 
@@ -3877,7 +3977,8 @@ BOOT.renderHelp = function () {
         '<p><b>時序</b>：一回合為一季，春夏秋冬四季為一年。</p>' +
         '<p><b>內政</b>：每座城每季可行動一次——興商（增金）、勸農（增糧）、築城（強化城防）、安民（提升民心）、募兵、訪賢（招募在野武將）。</p>' +
         '<p><b>軍事</b>：自我方城池向相鄰敵城／空城「出征」。戰鬥為回合制，可選擇突擊、計略、堅守、單挑、火計，善用地形與名將以寡擊眾。</p>' +
-        '<p><b>武將</b>：可在我方城池間自由調動（不耗行動）；勝戰後可登用被俘的敵將。</p>' +
+        '<p><b>武將</b>：可在我方城池間自由調動（不耗行動），調往相鄰城池時可率兵同行（原城至少留守 500）；勝戰後可登用被俘的敵將。</p>' +
+        '<p><b>單挑</b>：戰鬥中選「單挑」遣將挑戰敵將，勝者重挫敵軍士氣——名將對決另有單挑畫面。</p>' +
         '<p><b>外交</b>：可向他國請求停戰，換取喘息。</p>' +
         '<p><b>資源</b>：金用於建設與募兵；糧供養軍隊，糧盡則士卒逃散。</p>' +
       '</div>' +
