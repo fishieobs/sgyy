@@ -1626,38 +1626,109 @@ MAP.drawCities = function (g) {
     var col = fac ? fac.color : "#9aa0a6";
     var st = S.cityState ? S.cityState[cid] : null;
     var sel = (S.selectedCity === cid);
-    var rad = 8 + (st ? U.clamp(st.troops / 6000, 0, 8) : 2);
-    rad = rad * (0.7 + MAP.cam.scale * 0.5);
-    rad = U.clamp(rad, 7, 22);
+    // 規模隨兵力與縮放（沿用原尺度）
+    var s = 8 + (st ? U.clamp(st.troops / 6000, 0, 8) : 1);
+    s = s * (0.7 + MAP.cam.scale * 0.5);
+    s = U.clamp(s, 7, 22);
 
-    // 選取光暈
-    if (sel) {
-      g.beginPath(); g.arc(p.x, p.y, rad + 7, 0, Math.PI * 2);
-      g.fillStyle = "rgba(245,200,80,0.30)"; g.fill();
-    }
-    // 城池圓
-    g.beginPath(); g.arc(p.x, p.y, rad, 0, Math.PI * 2);
-    g.fillStyle = col; g.fill();
-    g.lineWidth = sel ? 3 : 1.6;
-    g.strokeStyle = sel ? "#f5c842" : "rgba(20,16,10,0.85)";
-    g.stroke();
-
-    // 首都標記（君主所在）
-    if (fac && S.generals && S.generals[fac.leaderId] && S.generals[fac.leaderId].loc === cid) {
-      MAP.drawStar(g, p.x, p.y - rad - 7 * MAP.cam.scale, 5 * MAP.cam.scale + 2, "#ffd75e");
-    }
+    var isCap = !!(fac && S.generals && S.generals[fac.leaderId] && S.generals[fac.leaderId].loc === cid);
+    MAP.drawCityMark(g, p.x, p.y, s, col, sel, !!owner, isCap);
 
     // 文字（城名 + 兵力）
+    var h = s * 1.7;
+    var topY = p.y - h * 0.5 - (isCap ? s * 0.62 : 0);
+    var botY = p.y + h * 0.5;
     var fontPx = U.clamp(13 * MAP.cam.scale, 10, 16);
     g.font = "700 " + fontPx + "px 'Noto Serif TC',serif";
     g.textAlign = "center"; g.textBaseline = "bottom";
-    MAP.haloText(g, c.n, p.x, p.y - rad - 3, "#2b2218", "rgba(255,250,235,0.9)");
+    MAP.haloText(g, c.n, p.x, topY - 4, "#2b2218", "rgba(255,250,235,0.92)");
     if (st) {
       g.font = "600 " + (fontPx - 2) + "px system-ui,sans-serif";
       g.textBaseline = "top";
-      MAP.haloText(g, U.wan(st.troops), p.x, p.y + rad + 2, owner ? "#1c1209" : "#444",
+      MAP.haloText(g, U.wan(st.troops), p.x, botY + 3, owner ? "#1c1209" : "#444",
         "rgba(255,250,235,0.85)");
     }
+  }
+};
+
+/* 城樓圖標：城牆雉堞 + 拱門 + 旗幟（取代原本的圓圈） */
+MAP.drawCityMark = function (g, x, y, s, color, sel, owned, isCap) {
+  var w = s * 2.0, h = s * 1.7;
+  var left = x - w / 2, right = x + w / 2;
+  var top = y - h * 0.5, bot = y + h * 0.5;
+  var merlonH = h * 0.26, bodyTop = top + merlonH;
+  var n = 4, seg = w / (2 * n - 1);
+
+  // 地面投影
+  g.beginPath();
+  if (g.ellipse) g.ellipse(x, bot + s * 0.14, w * 0.52, s * 0.22, 0, 0, Math.PI * 2);
+  else g.arc(x, bot + s * 0.14, w * 0.5, 0, Math.PI * 2);
+  g.fillStyle = "rgba(0,0,0,0.22)"; g.fill();
+
+  // 選取光暈
+  if (sel) {
+    var grd = g.createRadialGradient(x, y, s * 0.4, x, y, s * 2.1);
+    grd.addColorStop(0, "rgba(245,200,80,0.45)");
+    grd.addColorStop(1, "rgba(245,200,80,0)");
+    g.beginPath(); g.arc(x, y, s * 2.1, 0, Math.PI * 2); g.fillStyle = grd; g.fill();
+  }
+
+  // 城樓輪廓（含雉堞）
+  function trace() {
+    g.beginPath();
+    g.moveTo(left, bot);
+    g.lineTo(left, bodyTop);
+    var cx = left, i;
+    for (i = 0; i < n; i++) {
+      g.lineTo(cx, top);
+      g.lineTo(cx + seg, top);
+      g.lineTo(cx + seg, bodyTop);
+      cx += seg;
+      if (i < n - 1) { g.lineTo(cx + seg, bodyTop); cx += seg; }
+    }
+    g.lineTo(right, bodyTop);
+    g.lineTo(right, bot);
+    g.closePath();
+  }
+  trace(); g.fillStyle = color; g.fill();
+  // 立體明暗
+  var lg = g.createLinearGradient(0, top, 0, bot);
+  lg.addColorStop(0, "rgba(255,255,255,0.20)");
+  lg.addColorStop(0.5, "rgba(0,0,0,0)");
+  lg.addColorStop(1, "rgba(0,0,0,0.30)");
+  trace(); g.fillStyle = lg; g.fill();
+  // 外框
+  trace();
+  g.lineWidth = sel ? 2.4 : 1.4;
+  g.strokeStyle = sel ? "#ffd75e" : "rgba(18,12,6,0.9)";
+  g.lineJoin = "round"; g.stroke();
+
+  // 拱形城門
+  var gw = w * 0.30, gh = h * 0.46, gx = x - gw / 2, ar = gw / 2, gyc = bot - gh + ar;
+  g.beginPath();
+  g.moveTo(gx, bot);
+  g.lineTo(gx, gyc);
+  g.arc(x, gyc, ar, Math.PI, 0, false);
+  g.lineTo(gx + gw, bot);
+  g.closePath();
+  g.fillStyle = owned ? "rgba(20,13,7,0.82)" : "rgba(45,42,38,0.72)";
+  g.fill();
+  // 門縫
+  g.beginPath(); g.moveTo(x, gyc - ar * 0.5); g.lineTo(x, bot);
+  g.lineWidth = Math.max(0.6, s * 0.05); g.strokeStyle = "rgba(255,232,170,0.22)"; g.stroke();
+
+  // 首都金旗
+  if (isCap) {
+    var poleTop = top - s * 0.6, poleBot = top + s * 0.04;
+    g.lineWidth = Math.max(1, s * 0.09); g.strokeStyle = "rgba(30,20,10,0.9)";
+    g.beginPath(); g.moveTo(x, poleBot); g.lineTo(x, poleTop); g.stroke();
+    g.beginPath();
+    g.moveTo(x, poleTop);
+    g.lineTo(x + s * 0.72, poleTop + s * 0.2);
+    g.lineTo(x, poleTop + s * 0.4);
+    g.closePath();
+    g.fillStyle = "#ffd75e"; g.fill();
+    g.lineWidth = 0.8; g.strokeStyle = "rgba(120,80,0,0.85)"; g.stroke();
   }
 };
 
