@@ -315,7 +315,7 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 #battleOverlay.show{display:flex;}
 #battleTitle{text-align:center;font-family:var(--serif);font-size:19px;font-weight:700;
   color:var(--gold-b);letter-spacing:3px;padding:6px 0 10px;}
-#battleStage{display:flex;align-items:stretch;gap:8px;justify-content:center;}
+#battleStage{display:flex;align-items:stretch;gap:8px;justify-content:center;position:relative;}
 .bt-side{flex:1;max-width:44%;display:flex;flex-direction:column;align-items:center;gap:5px;
   background:rgba(0,0,0,.3);border:1px solid rgba(201,162,76,.3);border-radius:12px;padding:10px 8px;}
 .bt-side.foe{border-color:rgba(192,67,47,.5);}
@@ -338,6 +338,32 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 @keyframes clash{0%{transform:scale(1) rotate(0);}40%{transform:scale(1.6) rotate(-12deg);}100%{transform:scale(1) rotate(0);}}
 .shake{animation:shake .32s ease;}
 @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-6px);}40%{transform:translateX(6px);}60%{transform:translateX(-4px);}80%{transform:translateX(4px);}}
+
+/* ===== 兵種專屬戰場演出 ===== */
+#btFx{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:6;}
+.fx{position:absolute;opacity:0;will-change:transform,opacity;line-height:1;}
+/* 弓兵：箭矢齊射 */
+.fx-arrow{font-size:15px;color:#f4e0a0;text-shadow:0 1px 2px rgba(0,0,0,.7),0 0 6px rgba(240,207,120,.6);}
+.fx-arrow.lr{animation:fxArrowLR .5s ease-in forwards;}
+.fx-arrow.rl{animation:fxArrowRL .5s ease-in forwards;}
+@keyframes fxArrowLR{0%{transform:translateX(0) translateY(0);opacity:0;}15%{opacity:1;}100%{transform:translateX(150px) translateY(10px);opacity:0;}}
+@keyframes fxArrowRL{0%{transform:translateX(0) translateY(0);opacity:0;}15%{opacity:1;}100%{transform:translateX(-150px) translateY(10px);opacity:0;}}
+/* 騎兵：鐵騎衝鋒 */
+.fx-charge{font-size:30px;filter:drop-shadow(0 3px 3px rgba(0,0,0,.55));}
+.fx-charge.lr{animation:fxChargeLR .55s cubic-bezier(.25,.55,.4,1) forwards;}
+.fx-charge.rl{animation:fxChargeRL .55s cubic-bezier(.25,.55,.4,1) forwards;}
+@keyframes fxChargeLR{0%{transform:translateX(-24px) scaleX(-1);opacity:0;}25%{opacity:1;}100%{transform:translateX(165px) scaleX(-1);opacity:0;}}
+@keyframes fxChargeRL{0%{transform:translateX(24px);opacity:0;}25%{opacity:1;}100%{transform:translateX(-165px);opacity:0;}}
+/* 步兵：短兵相接 */
+.fx-burst{font-size:32px;animation:fxBurst .5s ease forwards;text-shadow:0 0 8px rgba(255,220,150,.6);}
+@keyframes fxBurst{0%{transform:scale(.4) rotate(-18deg);opacity:0;}40%{transform:scale(1.45) rotate(8deg);opacity:1;}100%{transform:scale(1.05);opacity:0;}}
+/* 火計 / 計略 / 堅守 */
+.fx-fire{font-size:32px;animation:fxFire .6s ease forwards;}
+@keyframes fxFire{0%{transform:scale(.4);opacity:0;}35%{transform:scale(1.5);opacity:1;}100%{transform:scale(1.2) translateY(-18px);opacity:0;}}
+.fx-strat{font-size:27px;animation:fxStrat .65s ease forwards;}
+@keyframes fxStrat{0%{transform:scale(.5) rotate(0);opacity:0;}40%{opacity:1;}100%{transform:scale(1.3) rotate(210deg);opacity:0;}}
+.fx-guard{font-size:27px;animation:fxGuard .55s ease forwards;}
+@keyframes fxGuard{0%{transform:scale(.5) translateY(8px);opacity:0;}40%{transform:scale(1.2) translateY(0);opacity:1;}100%{transform:scale(1);opacity:0;}}
 
 /* 單挑畫面 */
 #duelBox{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%) scale(.9);
@@ -3143,7 +3169,8 @@ BATTLE.renderStage = function () {
   stage.innerHTML =
     sideHtml(mine, "mine") +
     '<div class="bt-vs" id="btVs">⚔</div>' +
-    sideHtml(foe, "foe");
+    sideHtml(foe, "foe") +
+    '<div id="btFx"></div>';
 
   document.getElementById("battleLog").innerHTML = "";
   BATTLE.updateStage();
@@ -3234,6 +3261,51 @@ BATTLE.flash = function (attT, defT, res) {
   var mine = document.getElementById("btSide-mine");
   function shake(el) { if (!el) return; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
   shake(foe); shake(mine);
+  // 兵種專屬戰場演出
+  var c = BATTLE.ctx;
+  var attWho = c.playerSide === "att" ? "mine" : "foe";
+  var defWho = attWho === "mine" ? "foe" : "mine";
+  BATTLE.spawnFx(attWho, c.att.ttype, attT, res, "att");
+  BATTLE.spawnFx(defWho, c.def.ttype, defT, res, "def");
+};
+
+/* 生成單一特效元素（動畫結束後自動移除） */
+BATTLE._fxEl = function (cls, dir, leftPct, topPct, glyph, delay) {
+  var layer = document.getElementById("btFx"); if (!layer) return;
+  var e = document.createElement("div");
+  e.className = "fx " + cls + (dir ? " " + dir : "");
+  e.style.left = leftPct + "%"; e.style.top = topPct + "%";
+  if (delay) e.style.animationDelay = delay + "ms";
+  e.textContent = glyph;
+  layer.appendChild(e);
+  e.addEventListener("animationend", function () { if (e.parentNode) e.parentNode.removeChild(e); });
+  setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 1100 + (delay || 0));
+};
+
+/* 依某方兵種與戰術，朝對方演出特效 */
+BATTLE.spawnFx = function (who, ttype, tactic, res, role) {
+  if (!who || tactic === "duel") return;
+  var dir = who === "mine" ? "lr" : "rl";
+  var towardX = dir === "lr" ? 58 : 30;   // 對方所在
+  var ownX = dir === "lr" ? 24 : 64;      // 自方所在
+  if (tactic === "fire") {
+    if (res && res.fire && res.fire.who === role) {
+      if (res.fire.backfire) BATTLE._fxEl("fx-fire", "", ownX, 38, "💥");
+      else BATTLE._fxEl("fx-fire", "", towardX, 36, "🔥");
+    }
+    return;
+  }
+  if (tactic === "strat") { BATTLE._fxEl("fx-strat", "", towardX, 34, "🌀"); return; }
+  if (tactic === "defend") { BATTLE._fxEl("fx-guard", "", ownX, 40, "🛡"); return; }
+  // 突擊／一般：依兵種演出
+  if (ttype === "a") {            // 弓兵齊射
+    var gl = dir === "lr" ? "➤" : "◀";
+    for (var i = 0; i < 4; i++) BATTLE._fxEl("fx-arrow", dir, dir === "lr" ? 30 : 60, 24 + i * 11, gl, i * 70);
+  } else if (ttype === "c") {     // 騎兵衝鋒
+    BATTLE._fxEl("fx-charge", dir, dir === "lr" ? 26 : 60, 38, "🐎");
+  } else {                        // 步兵短兵相接
+    BATTLE._fxEl("fx-burst", "", towardX, 36, "⚔");
+  }
 };
 
 BATTLE.showDuel = function (d) {
